@@ -59,6 +59,7 @@ def GetMoves(character, fontname='arial.svg'):
 def getCutPath(path_list):
 	#incomplete at the moment - still need to add steps for curve cuts
 	cut_paths = []
+	segments = 10 #number of segments to break down curves in to
 	move_start = [0.0,0.0] #make default start in case first move is not "M" for some reason
 	for movement in path_list:
 		move_points = movement[1:].split(' ')
@@ -68,56 +69,53 @@ def getCutPath(path_list):
 			if movement[0].isupper():
 				x_point = float(move_points[0])
 				y_point = float(move_points[1])
-				cut_paths.append(['G0',x_point,y_point])
 			if movement[0].islower():
 				x_point = float(move_points[0])+move_start[0]
 				y_point = float(move_points[1])+move_start[1]
-				cut_paths.append(['G0',x_point,y_point])
+			cut_paths.append(['G0',x_point,y_point])
 			move_start = [x_point,y_point]
 		elif movement[0].lower() == 'l':
 			if movement[0].isupper():
 				x_point = float(move_points[0])
 				y_point = float(move_points[1])
-				cut_paths.append(['G1',x_point,y_point])
 			if movement[0].islower():    
 				x_point = float(move_points[0])+move_start[0]
 				y_point = float(move_points[1])+move_start[1] 
-				cut_paths.append(['G1',x_point,y_point])
+			cut_paths.append(['G1',x_point,y_point])
 			move_start = [x_point,y_point]
 		elif movement[0].lower() == 'v':
 			if movement[0].isupper():
 				x_point = move_start[0]
 				y_point = float(move_points[0])
-				cut_paths.append(['G1',x_point,y_point])
 			if movement[0].islower():
 				x_point = move_start[0]
 				y_point = float(move_points[0])+move_start[1] 
-				cut_paths.append(['G1',x_point,y_point])
+			cut_paths.append(['G1',x_point,y_point])
 			move_start = [x_point,y_point]
 		elif movement[0].lower() == 'h':
 			if movement[0].isupper():
 				x_point = float(move_points[0])
 				y_point = move_start[1] 
-				cut_paths.append(['G1',x_point,y_point])
 			if movement[0].islower():
 				x_point = float(move_points[0])+move_start[0]
 				y_point = move_start[1] 
-				cut_paths.append(['G1',x_point,y_point])
+			cut_paths.append(['G1',x_point,y_point])
 			move_start = [x_point,y_point]
 		elif movement[0].lower() == 'q':
-			#only start and end points at the moment, will fill out curve later
 			if movement[0].isupper():
 				x_point = float(move_points[2])
 				y_point = float(move_points[3])
 				x_control = float(move_points[0])
 				y_control = float(move_points[1])
-				cut_paths.append([movement[0],x_point,y_point,x_control,y_control])
 			if movement[0].islower():
 				x_point = float(move_points[2])+move_start[0]
 				y_point = float(move_points[3])+move_start[1] 
 				x_control = float(move_points[0])+move_start[0]
 				y_control = float(move_points[1])+move_start[1]  
-				cut_paths.append([movement[0],x_point,y_point,x_control,y_control])
+			cut_list = QuadraticCurveSplit(move_start[0],move_start[1],x_control,y_control,x_point,y_point,segments)
+			for move in cut_list:
+				cut_paths.append(['G1',move[0],move[1]])
+			cut_paths.append(['G1',x_point,y_point,x_control,y_control])
 			move_start = [x_point,y_point]
 			control_start = [x_control,y_control]
 		elif movement[0].lower() == 't':
@@ -127,15 +125,16 @@ def getCutPath(path_list):
 				#taking a guess at how reflected control points work for now
 				x_control = move_start[0] + (move_start[0] - control_start[0])
 				y_control = move_start[1] + (move_start[1] - control_start[1])
-				cut_paths.append([movement[0],x_point,y_point,x_control,y_control])
-			#only start and end points at the moment, will fill out curve later
 			if movement[0].islower():
 				x_point = float(move_points[0])+move_start[0]
 				y_point = float(move_points[1])+move_start[1] 
 				#taking a guess at how reflected control points work for now
 				x_control = move_start[0] + (move_start[0] - control_start[0])
 				y_control = move_start[1] + (move_start[1] - control_start[1])
-				cut_paths.append([movement[0],x_point,y_point,x_control,y_control])
+			cut_list = QuadraticCurveSplit(move_start[0],move_start[1],x_control,y_control,x_point,y_point,segments)
+			for move in cut_list:
+				cut_paths.append(['G1',move[0],move[1]])
+			cut_paths.append(['G1',x_point,y_point,x_control,y_control])
 			move_start = [x_point,y_point]
 			control_start = [x_control,y_control]
 		elif movement[0].lower() == 'z':
@@ -143,4 +142,19 @@ def getCutPath(path_list):
 		else:
 			cut_paths.append('unknown')
 	return cut_paths
+	
+def QuadraticCurveSplit(start_x,start_y, control_x,control_y,end_x,end_y,segments):
+	# Bez points = (1-t)^2*P0+2*(1-t)*t*P1+t^2*P2
+	P0 = [start_x,start_y]
+	P1 = [control_x,control_y]
+	P2 = [end_x,end_y]
+	return_path = []
+	for i in range(1, segments):
+		t = i/10
+		factor0 = (1.0-t)**2.0
+		factor1 = 2*(1.0-t)*t
+		factor2 = t**2.0
+		curve_point = [sum(x) for x in zip([i*fact0 for i in P0],[i*fact1 for i in P1],[i*fact2 for i in P2])]  
+		return_path.append(curve_point)
+	return return_path
 	
